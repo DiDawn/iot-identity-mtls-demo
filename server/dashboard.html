@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IIoT – Supervision ligne de pression</title>
+<style>
+  /* Pensé pour la projection : 1 rem = 24 px sur un écran de 1920 px ; aucun texte sous 18 px. */
+  /* Thèmes : [data-theme] sur <html>. Touche T ou bouton rond en haut à droite pour changer ; ?theme=papier|clair|contraste|sombre dans l'URL. */
+  :root, [data-theme="papier"] { --bg:#f2efe8; --panel:#fbfaf6; --line:#d3cdbf; --text:#14202b; --dim:#566372; --ok:#08695c; --bad:#b93a0b; --warn:#9a5b00; --accent:#08695c; --lane:#ebe6da; --ring:#14202b; --chip:#fff; --okbg:#dcefe9; --badbg:#f6e0d6; --c1:#1f5a9e; --c2:#b05a00; --c3:#7a3fa0; --c4:#0a7e86; --shadow:#0003; }
+  [data-theme="clair"]     { --bg:#eef3fa; --panel:#ffffff; --line:#cdd8e8; --text:#10223a; --dim:#546682; --ok:#0b7a4b; --bad:#c4263a; --warn:#a85f00; --accent:#1d5fd1; --lane:#e6edf8; --ring:#10223a; --chip:#fff; --okbg:#d9f1e5; --badbg:#fbdde1; --c1:#1d5fd1; --c2:#c2610c; --c3:#7a3fc4; --c4:#0b8a8f; --shadow:#0003; }
+  [data-theme="contraste"] { --bg:#ffffff; --panel:#ffffff; --line:#1a1a1a; --text:#000000; --dim:#333333; --ok:#006b2b; --bad:#c00018; --warn:#8a4b00; --accent:#0033cc; --lane:#eeeeee; --ring:#000000; --chip:#fff; --okbg:#d8f3df; --badbg:#fbd5d9; --c1:#0033cc; --c2:#b34700; --c3:#7a1fa2; --c4:#00727a; --shadow:#0005; }
+  [data-theme="sombre"]    { --bg:#0b0f14; --panel:#151a22; --line:#2f3744; --text:#f2f5f9; --dim:#aab5c4; --ok:#35e089; --bad:#ff5468; --warn:#ffb347; --accent:#6db3ff; --lane:#1b222d; --ring:#ffffff; --chip:#10141a; --okbg:#10301f; --badbg:#3a1a1f; --c1:#6db3ff; --c2:#ffb347; --c3:#d6a2ff; --c4:#4dd8e8; --shadow:#000a; }
+  * { box-sizing: border-box; }
+  html { font-size: clamp(18px, 1.25vw, 44px); }
+  body { margin:0; height:100vh; display:flex; flex-direction:column; gap:.7rem; padding:.9rem 1.4rem; background:var(--bg); color:var(--text); font:1rem/1.35 system-ui,-apple-system,"Segoe UI",sans-serif; overflow:hidden; }
+  header { display:flex; align-items:center; gap:1.2rem; flex:none; }
+  h1 { margin:0; font-size:1.55rem; font-weight:700; flex:1; }
+  #badge { padding:.3rem 1rem; border-radius:999px; font-weight:800; font-size:1.05rem; letter-spacing:.03em; border:3px solid; }
+  #badge.token { background:var(--badbg); color:var(--bad); border-color:var(--bad); }
+  #badge.mtls  { background:var(--okbg); color:var(--ok);  border-color:var(--ok); }
+  .ib { flex:none; width:2.3rem; height:2.3rem; display:grid; place-items:center; border-radius:50%; border:2px solid var(--line); background:var(--panel); color:var(--text); cursor:pointer; font:inherit; font-size:1.2rem; padding:0; }
+  .ib:hover { border-color:var(--accent); }
+  #pause.on { background:var(--warn); border-color:var(--warn); color:var(--panel); }
+  .ib svg { width:1.05rem; height:1.05rem; fill:currentColor; }
+  #pstate { color:var(--warn); font-weight:800; font-size:1rem; margin-left:-.6rem; display:none; }
+  #pstate.show { display:inline; }
+
+  #cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(15rem,1fr)); gap:.9rem; flex:none; }
+  .card { background:var(--panel); border:2px solid var(--line); border-radius:1rem; padding:.6rem 1.1rem; min-width:0; }
+  .card.alarm, .card.flash { border-color:var(--bad); animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { box-shadow:0 0 0 .4rem color-mix(in srgb, var(--bad) 30%, transparent); } }
+  .dev { color:var(--dim); font-size:1rem; text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
+  .val { font-size:3.6rem; line-height:1.05; font-weight:800; font-variant-numeric:tabular-nums; }
+  .val small { font-size:1.2rem; color:var(--dim); font-weight:600; }
+  .card.alarm .val, .card.flash .val { color:var(--bad); }
+  .state { font-weight:800; font-size:1.2rem; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+
+  #chartbox { position:relative; flex:1 1 0; min-height:14rem; background:var(--panel); border:2px solid var(--line); border-radius:0; padding:.3rem; }
+  canvas { width:100%; height:100%; display:block; }
+
+  #events { flex:none; background:var(--panel); border:2px solid var(--line); border-radius:1rem; padding:.5rem 1rem; }
+  #events h2 { margin:0 0 .25rem; font-size:1rem; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; }
+  .row { display:flex; gap:.9rem; align-items:baseline; padding:.12rem .4rem; border-radius:.5rem; font-size:1.1rem; white-space:nowrap; overflow:hidden; cursor:default; }
+  .row:hover { background:var(--lane); }
+  .row .t { color:var(--dim); font-variant-numeric:tabular-nums; }
+  .chip { font-weight:800; font-size:.9rem; padding:0 .55rem; border-radius:.4rem; color:var(--chip); }
+  .chip.alarm { background:var(--bad); } .chip.tls { background:var(--bad); } .chip.http { background:var(--warn); }
+  .row .x { overflow:hidden; text-overflow:ellipsis; }
+  .none { color:var(--dim); padding:.12rem .4rem; font-size:1.1rem; }
+
+  #tip { position:fixed; z-index:10; display:none; max-width:min(38rem, 94vw); background:var(--panel); border:3px solid var(--accent); border-radius:.9rem; padding:.7rem 1rem; font-size:1.05rem; box-shadow:0 .5rem 2rem var(--shadow); pointer-events:none; }
+  #tip.pinned { border-style:dashed; }
+  #tip .th { font-size:1.25rem; font-weight:800; margin-bottom:.4rem; }
+  #tip .kv { display:grid; grid-template-columns:9.5rem 1fr; gap:.6rem; padding:.08rem 0; }
+  #tip .k { color:var(--dim); } #tip .v { word-break:break-word; font-variant-numeric:tabular-nums; }
+  #tip pre { margin:.3rem 0 0; padding:.45rem .7rem; background:var(--lane); border-radius:.5rem; font:inherit; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:1rem; white-space:pre-wrap; }
+  #tip .note { margin-top:.5rem; padding-top:.4rem; border-top:1px solid var(--line); font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <button id="pause" class="ib" title="Pause / reprise (Espace)" aria-label="Pause"></button>
+  <span id="pstate">PAUSE</span>
+  <h1>Supervision – ligne de pression</h1>
+  <div id="badge" class="token">…</div>
+  <button id="theme" class="ib" title="Changer de thème (T)" aria-label="Thème"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 3a7 7 0 0 1 0 14V5z"/></svg></button>
+</header>
+<div id="cards"></div>
+<div id="chartbox"><canvas id="c"></canvas></div>
+<div id="events"><h2>Alarmes et rejets</h2><div id="rows"></div></div>
+<div id="tip"></div>
+<script>
+const THEMES = ["papier", "clair", "contraste", "sombre"];
+let pal = {};
+const cssv = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function applyTheme(t) {
+  if (!THEMES.includes(t)) t = "papier";
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("iiot-theme", t); } catch (e) {}
+  ["bg", "panel", "line", "text", "dim", "ok", "bad", "warn", "accent", "lane", "ring", "c1", "c2", "c3", "c4"].forEach((k) => (pal[k] = cssv("--" + k)));
+  $("theme").title = "Thème : " + t + " (touche T pour changer)";
+  dirty = true;
+}
+const ICON_PAUSE = '<svg viewBox="0 0 16 16"><rect x="3" y="2" width="3.5" height="12" rx="1"/><rect x="9.5" y="2" width="3.5" height="12" rx="1"/></svg>';
+const ICON_PLAY = '<svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg>';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const hms = (t) => new Date(t * 1000).toLocaleTimeString("fr-FR");
+const host = (src) => String(src || "?").replace(/:\d+$/, "");
+
+let live = null, liveAt = 0;          // dernier état reçu du serveur
+let paused = false, frozen = null, frozenNow = 0;
+let pinned = null, mouse = null, hits = [], dirty = true, rowsSig = "";
+const byId = new Map();               // id -> { type: "ok" | "rej", item }
+
+const view = () => (paused ? frozen : live);
+const nowT = () => (paused ? frozenNow : live.now + (performance.now() - liveAt) / 1000);
+
+async function poll() {
+  try {
+    live = await (await fetch("/state", { cache: "no-store" })).json();
+    liveAt = performance.now();
+    if (!paused) { renderCards(); renderRows(); }
+  } catch (e) { /* serveur arrêté : on garde la dernière image */ }
+}
+
+function setPaused(p) {
+  if (!live) return;
+  if (p) { frozenNow = nowT(); frozen = live; } else { frozen = null; pinned = null; hideTip(); }
+  paused = p;
+  $("pause").classList.toggle("on", p);
+  $("pause").innerHTML = p ? ICON_PLAY : ICON_PAUSE;
+  $("pause").title = p ? "Reprendre (Espace)" : "Pause (Espace)";
+  $("pstate").classList.toggle("show", p);
+  rowsSig = ""; renderCards(); renderRows(); dirty = true;
+}
+$("pause").innerHTML = ICON_PAUSE;
+$("pause").onclick = () => setPaused(!paused);
+$("theme").onclick = () => applyTheme(THEMES[(THEMES.indexOf(document.documentElement.dataset.theme) + 1) % THEMES.length]);
+addEventListener("keydown", (e) => {
+  if (e.code === "Space" || e.key === "p") { e.preventDefault(); setPaused(!paused); }
+  if (e.key === "t" || e.key === "T") $("theme").click();
+  if (e.key === "Escape") { pinned = null; hideTip(); dirty = true; }
+});
+
+/* ------------------------------------------------------------------ cartes */
+function renderCards() {
+  const s = view(); if (!s) return;
+  const b = $("badge"); b.className = s.mode;
+  b.textContent = s.mode === "mtls" ? "mTLS : certificat client obligatoire" : "TOKEN STATIQUE : mode vulnérable";
+  const now = nowT();
+  const devs = Object.keys(s.latest).sort();
+  let html = devs.map((d) => {
+    // L'alarme reste affichée 6 s après la dernière mesure critique, même si le vrai nœud renvoie une valeur normale.
+    const lastAlarm = [...s.readings].reverse().find((x) => x.device === d && x.alarm && now - x.t < 6);
+    const r = lastAlarm || s.latest[d];
+    return `<div class="card ${r.alarm ? "alarm" : ""}">
+      <div class="dev">${esc(d)}</div>
+      <div class="val">${r.value.toFixed(2)} <small>bar</small></div>
+      <div class="state ${r.alarm ? "bad" : "ok"}">${r.alarm ? "ALARME CRITIQUE" : "Normal"}</div>
+    </div>`;
+  }).join("");
+  const last = s.rejects.length ? s.rejects[s.rejects.length - 1] : null;
+  const fresh = last && now - last.t < 8;
+  html += `<div class="card ${fresh ? "flash" : ""}">
+      <div class="dev">Rejets</div>
+      <div class="val ${s.counts.rejected ? "bad" : ""}">${s.counts.rejected}</div>
+      <div class="state ${s.counts.rejected ? "bad" : "ok"}">${s.counts.rejected ? "Intrusions bloquées" : "Aucun rejet"}</div>
+    </div>`;
+  $("cards").innerHTML = devs.length || s.counts.rejected ? html : `<div class="card"><div class="dev">En attente de télémétrie…</div><div class="val">&nbsp;</div><div class="state">&nbsp;</div></div>`;
+}
+
+/* ------------------------------------------------------------------ événements */
+function renderRows() {
+  const s = view(); if (!s) return;
+  byId.clear();
+  s.readings.forEach((r) => byId.set(r.id, { type: "ok", item: r }));
+  s.rejects.forEach((r) => byId.set(r.id, { type: "rej", item: r }));
+  // Mode token : pas de liste en bas, le détail s'obtient en survolant les points et les ✕.
+  const hide = s.mode === "token";
+  if (($("events").style.display === "none") !== hide) { $("events").style.display = hide ? "none" : ""; dirty = true; }
+  if (hide) return;
+  const ev = [...s.readings.filter((r) => r.alarm).map((r) => ({ type: "ok", item: r })), ...s.rejects.map((r) => ({ type: "rej", item: r }))]
+    .sort((a, b) => b.item.t - a.item.t).slice(0, 5);
+  const sig = ev.map((e) => e.item.id).join(",");
+  if (sig === rowsSig) return;
+  rowsSig = sig;
+  $("rows").innerHTML = ev.map((e) => {
+    const r = e.item;
+    if (e.type === "ok") return `<div class="row" data-id="${r.id}"><span class="t">${hms(r.t)}</span><span class="chip alarm">ALARME</span><span class="x">${esc(r.device)} · ${r.value.toFixed(2)} bar · source ${esc(host((r.packet || {}).src))}</span></div>`;
+    return `<div class="row" data-id="${r.id}"><span class="t">${hms(r.t)}</span><span class="chip ${r.kind}">${r.kind === "tls" ? "REJET TLS" : "REJET API"}</span><span class="x">${esc(r.alert || r.title)} · source ${esc(host(r.source))}</span></div>`;
+  }).join("") || `<div class="none">Rien à signaler.</div>`;
+}
+$("rows").addEventListener("mousemove", (e) => {
+  const row = e.target.closest(".row"); if (!row) return;
+  const t = byId.get(Number(row.dataset.id)); if (t) showTip(t, e.clientX, e.clientY, false);
+});
+$("rows").addEventListener("mouseleave", () => { if (!pinned) hideTip(); });
+
+/* ------------------------------------------------------------------ infobulle */
+function kv(k, v, cls = "") { return `<div class="kv"><span class="k">${k}</span><span class="v ${cls}">${v}</span></div>`; }
+function pre(o) { return o ? `<pre>${esc(JSON.stringify(o, null, 2))}</pre>` : ""; }
+
+function usualSource(s, device) {
+  const n = {};
+  s.readings.forEach((r) => { if (r.device === device) n[host((r.packet || {}).src)] = (n[host((r.packet || {}).src)] || 0) + 1; });
+  const top = Object.entries(n).sort((a, b) => b[1] - a[1])[0];
+  return top && top[1] >= 3 ? top[0] : null;
+}
+
+function tipHTML(t) {
+  const s = view(), r = t.item, p = r.packet || {};
+  const hdr = p.headers || {}, cert = p.cert;
+  let h = "";
+  if (t.type === "ok") {
+    const usual = usualSource(s, r.device), odd = usual && host(p.src) !== usual;
+    h += `<div class="th ${r.alarm ? "bad" : "ok"}">✔ Paquet accepté${r.alarm ? " : ALARME" : ""} · ${hms(r.t)}</div>`;
+    h += kv("Source", esc(p.src) + (odd ? ` <b class="bad">≠ habituelle (${esc(usual)})</b>` : ""), odd ? "bad" : "");
+    h += kv("Requête", esc(p.request));
+    if (p.tls) h += kv("Chiffrement", esc(p.tls));
+    if (r.auth === "mtls" && cert) {
+      h += kv("Authentification", "certificat client X.509", "ok");
+      h += kv("Sujet (CN)", esc(cert.cn));
+      h += kv("SAN", esc((cert.san || []).join(", ")));
+      h += kv("Émetteur", esc(cert.issuer));
+      h += kv("Série · expire", esc(cert.serial) + " · " + esc(cert.not_after));
+    } else {
+      h += kv("Authentification", "token statique", "bad");
+      h += kv("Token", esc((hdr.authorization || "?").replace(/^Bearer /, "")), "bad");
+    }
+    h += kv("Identité retenue", esc(r.device));
+    if (hdr["user-agent"]) h += kv("User-Agent", esc(hdr["user-agent"]));
+    h += `<div class="k" style="margin-top:.3rem">Corps de la requête</div>` + pre(p.body);
+    if (r.auth === "mtls") h += `<div class="note ok">Identité prouvée par la clé privée du nœud, vérifiée pendant la poignée de main.</div>`;
+  } else if (r.kind === "tls") {
+    h += `<div class="th bad">✖ Rejeté par TLS · ${hms(r.t)}</div>`;
+    h += kv("Source", esc(r.source));
+    h += kv("Motif (OpenSSL)", esc(r.reason));
+    h += kv("Alerte envoyée", esc(r.alert || "—"), "bad");
+    h += `<div class="note bad">Aucune requête HTTP lue : ni l'en-tête Authorization, ni le corps n'ont été déchiffrés. Le serveur n'a rien examiné d'autre que le certificat.</div>`;
+  } else {
+    h += `<div class="th" style="color:var(--warn)">✖ ${esc(r.title)} · ${hms(r.t)}</div>`;
+    h += kv("Source", esc(p.src || r.source));
+    if (p.tls) h += kv("Chiffrement", esc(p.tls));
+    if (cert) { h += kv("Certificat (CN)", esc(cert.cn), "ok"); h += kv("Émetteur", esc(cert.issuer)); }
+    if (hdr.authorization) h += kv("Token", esc(hdr.authorization.replace(/^Bearer /, "")), "bad");
+    else if (!cert) h += kv("Token", "aucun", "bad");
+    h += kv("Motif", esc(r.reason));
+    if (p.body) h += `<div class="k" style="margin-top:.3rem">Corps de la requête</div>` + pre(p.body);
+    h += `<div class="note" style="color:var(--warn)">${cert ? "TLS accepté (certificat valide) mais refus par l'application : l'identité vient du certificat, jamais du message." : "Refus par l'application."}</div>`;
+  }
+  return h;
+}
+
+function showTip(t, x, y, pin) {
+  const el = $("tip");
+  el.innerHTML = tipHTML(t);
+  el.classList.toggle("pinned", !!pin);
+  el.style.display = "block";
+  const w = el.offsetWidth, hgt = el.offsetHeight;
+  let left = x + 24, top = y + 18;
+  if (left + w > innerWidth - 8) left = x - w - 24;
+  if (left < 8) left = 8;
+  if (top + hgt > innerHeight - 8) top = Math.max(8, innerHeight - hgt - 8);
+  el.style.left = left + "px"; el.style.top = top + "px";
+}
+function hideTip() { $("tip").style.display = "none"; }
+
+/* ------------------------------------------------------------------ graphique */
+function draw() {
+  const s = view(); if (!s) return;
+  const cv = $("c"), dpr = devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const fs = Math.max(16, Math.round(W * 0.0125));          // 24 px à 1920 px de large
+  const lane = fs * 2.4, axis = fs * 1.5;
+  const pad = { l: fs * 4.4, r: fs * 0.9, t: fs * 2.1, b: axis + lane + fs * 0.5 };
+  const span = 90, t1 = nowT(), t0 = t1 - span, ymax = Math.max(12, s.threshold + 4);
+  const X = (t) => pad.l + (t - t0) / span * (W - pad.l - pad.r);
+  const Y = (v) => H - pad.b - v / ymax * (H - pad.t - pad.b);
+  const laneY = H - axis - lane * 0.5 - fs * 0.2;
+  hits = [];
+  ctx.font = `600 ${fs}px system-ui`; ctx.textBaseline = "middle";
+
+  // grille
+  ctx.strokeStyle = pal.line; ctx.lineWidth = 1; ctx.fillStyle = pal.dim; ctx.textAlign = "right";
+  for (let v = 0; v <= ymax; v += 2) { ctx.beginPath(); ctx.moveTo(pad.l, Y(v)); ctx.lineTo(W - pad.r, Y(v)); ctx.stroke(); ctx.fillText(v + (v + 2 > ymax ? " bar" : ""), pad.l - fs * 0.5, Y(v)); }
+  // axe du temps
+  ctx.textBaseline = "alphabetic"; ctx.textAlign = "center";
+  for (let dt = 0; dt <= span; dt += 15) {
+    const x = X(t1 - dt);
+    ctx.fillStyle = pal.dim;
+    if (dt === 0) { ctx.textAlign = "right"; ctx.fillText(paused ? "figé à " + hms(t1) : "maintenant", W - pad.r, H - fs * 0.35); ctx.textAlign = "center"; }
+    else ctx.fillText("−" + dt + " s", Math.max(x, pad.l + fs * 1.5), H - fs * 0.35);
+  }
+  // seuil
+  ctx.strokeStyle = pal.bad; ctx.lineWidth = 3; ctx.setLineDash([12, 8]);
+  ctx.beginPath(); ctx.moveTo(pad.l, Y(s.threshold)); ctx.lineTo(W - pad.r, Y(s.threshold)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = pal.bad; ctx.textAlign = "left"; ctx.fillText("seuil critique " + s.threshold + " bar", pad.l + fs * 0.5, Y(s.threshold) - fs * 0.6);
+  // couloir des rejets
+  ctx.fillStyle = pal.lane; ctx.fillRect(pad.l, laneY - lane * 0.5, W - pad.l - pad.r, lane);
+  ctx.fillStyle = pal.dim; ctx.textBaseline = "middle"; ctx.fillText("rejets", pad.l + fs * 0.4, laneY);
+
+  const COLORS = [pal.c1, pal.c2, pal.c3, pal.c4];
+  const hov = (it) => hoverId === it.id || (pinned && pinned.item.id === it.id);
+  const devs = Object.keys(s.latest).sort();
+  const sources = {};
+  devs.forEach((d) => (sources[d] = usualSource(s, d)));
+  devs.forEach((d, i) => {
+    const col = COLORS[i % COLORS.length];
+    const pts = s.readings.filter((r) => r.device === d && r.t >= t0 - 2);
+    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.beginPath();
+    pts.forEach((r, k) => (k ? ctx.lineTo(X(r.t), Y(r.value)) : ctx.moveTo(X(r.t), Y(r.value)))); ctx.stroke();
+    pts.forEach((r) => {
+      const x = X(r.t), y = Y(r.value); if (x < pad.l) return;
+      const odd = sources[d] && host((r.packet || {}).src) !== sources[d];
+      const rad = fs * (r.alarm ? 0.42 : 0.3) * (hov(r) ? 1.5 : 1);
+      ctx.fillStyle = r.alarm ? pal.bad : col; ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill();
+      if (odd || hov(r)) { ctx.strokeStyle = pal.ring; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, rad + fs * 0.2, 0, 7); ctx.stroke(); }
+      hits.push({ x, y, r: Math.max(rad, fs * 0.45), t: { type: "ok", item: r } });
+    });
+  });
+  // rejets
+  let lastX = -1e9;   // les rejets quasi simultanés (rafale d'attaques) sont écartés pour rester visibles et survolables
+  [...s.rejects].sort((p, q) => p.t - q.t).forEach((r) => {
+    let x = X(r.t); if (x < pad.l) return;
+    x = Math.max(x, lastX + fs * 1.15); lastX = x;
+    const a = fs * 0.42 * (hov(r) ? 1.4 : 1);
+    ctx.strokeStyle = r.kind === "tls" ? pal.bad : pal.warn; ctx.lineWidth = 5; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(x - a, laneY - a); ctx.lineTo(x + a, laneY + a); ctx.moveTo(x + a, laneY - a); ctx.lineTo(x - a, laneY + a); ctx.stroke();
+    hits.push({ x, y: laneY, r: fs * 0.7, t: { type: "rej", item: r } });
+  });
+  // légende
+  ctx.textBaseline = "middle"; ctx.textAlign = "left"; ctx.lineCap = "butt";
+  let lx = pad.l; const ly = fs * 0.9;
+  const leg = (txt, draw1, wExtra = 0) => { draw1(lx, ly); lx += fs * 0.9; ctx.fillStyle = pal.text; ctx.fillText(txt, lx, ly); lx += ctx.measureText(txt).width + fs * 1.1 + wExtra; };
+  devs.forEach((d, i) => leg(d, (x, y) => { ctx.fillStyle = COLORS[i % COLORS.length]; ctx.beginPath(); ctx.arc(x + fs * 0.2, y, fs * 0.3, 0, 7); ctx.fill(); }));
+  leg("source inhabituelle", (x, y) => { ctx.strokeStyle = pal.ring; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x + fs * 0.2, y, fs * 0.45, 0, 7); ctx.stroke(); });
+  leg("rejet TLS", (x, y) => { ctx.strokeStyle = pal.bad; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - 2, y - 7); ctx.lineTo(x + 12, y + 7); ctx.moveTo(x + 12, y - 7); ctx.lineTo(x - 2, y + 7); ctx.stroke(); });
+  leg("rejet API", (x, y) => { ctx.strokeStyle = pal.warn; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - 2, y - 7); ctx.lineTo(x + 12, y + 7); ctx.moveTo(x + 12, y - 7); ctx.lineTo(x - 2, y + 7); ctx.stroke(); });
+  hitTest();
+}
+
+let hoverId = null;
+function hitTest() {
+  if (!mouse) return;
+  let best = null, bd = 1e9;
+  hits.forEach((h) => { const d = Math.hypot(h.x - mouse.x, h.y - mouse.y); if (d <= h.r + 8 && d < bd) { best = h; bd = d; } });
+  const id = best ? best.t.item.id : null;
+  if (id !== hoverId) dirty = true;
+  hoverId = id;
+  $("c").style.cursor = best ? "pointer" : "default";
+  if (pinned) return;
+  if (best) showTip(best.t, mouse.cx, mouse.cy, false); else hideTip();
+}
+
+const cv = $("c");
+cv.addEventListener("mousemove", (e) => { const b = cv.getBoundingClientRect(); mouse = { x: e.clientX - b.left, y: e.clientY - b.top, cx: e.clientX, cy: e.clientY }; if (paused) { draw(); } });
+cv.addEventListener("mouseleave", () => { mouse = null; hoverId = null; if (!pinned) hideTip(); dirty = true; });
+cv.addEventListener("click", () => {
+  if (pinned) { pinned = null; hideTip(); dirty = true; return; }
+  const h = hits.find((x) => x.t.item.id === hoverId);
+  if (h && mouse) { pinned = h.t; showTip(h.t, mouse.cx, mouse.cy, true); dirty = true; }
+});
+addEventListener("resize", () => (dirty = true));
+
+let lastDraw = 0;
+function frame(ts) {
+  if (live && (!paused || dirty) && ts - lastDraw > 33) { draw(); dirty = false; lastDraw = ts; }
+  requestAnimationFrame(frame);
+}
+let t0 = new URLSearchParams(location.search).get("theme");
+if (!t0) { try { t0 = localStorage.getItem("iiot-theme"); } catch (e) {} }
+applyTheme(t0 || "papier");
+poll(); setInterval(poll, 500); requestAnimationFrame(frame);
+</script>
+</body>
+</html>

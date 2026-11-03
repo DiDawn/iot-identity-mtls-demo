@@ -1,0 +1,30 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets de démo : se régénèrent avec `make pki`
+pki/out/
+server/tokens.json
+
+*.key
+*.token
+*.srl
+Secret.txt
+
+# Enregistrements et archives
+*.cast
+*.tar.gz
+*.zip
+
+# Notes personnelles
+docs/FEDORA.md
+
+# Éditeurs et systèmes
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
