@@ -3,6 +3,8 @@
 Ce guide s'adresse à **quelqu'un qui récupère ce dépôt et veut rejouer la démonstration chez lui**, sans connaître la configuration de l'auteur.
 Il part de zéro : matériel, réseau, installation, vérifications, puis déroulé des deux scénarios.
 
+**Dépôt** : <https://github.com/DiDawn/iot-identity-mtls-demo>
+
 > **Compatibilité : testé sous Fedora.** La démonstration a été mise au point et vérifiée de bout en bout (serveur + Raspberry Pi 3B) avec un **serveur Fedora**.
 > Les parties qui n'en dépendent pas (PKI OpenSSL, serveur FastAPI, clients, attaques, dashboard, `make test`) sont du Python et de l'OpenSSL standard :
 > `make test` a aussi été exécuté sur Ubuntu 24.04 avec Python 3.14. En revanche, **je ne peux pas garantir que le reste (réseau, pare-feu, serveur de temps)
@@ -103,7 +105,8 @@ Le Makefile et les scripts lisent ces variables : vous n'avez rien d'autre à mo
 ## 4. Préparer le PC (serveur IoT)
 
 ```bash
-cd iot-security
+git clone https://github.com/DiDawn/iot-identity-mtls-demo.git
+cd iot-identity-mtls-demo
 chmod +x server/*.sh pki/*.sh pi/*.sh attacker/*.sh tests/*.sh     # utile si l'archive a perdu les droits d'exécution
 ```
 
